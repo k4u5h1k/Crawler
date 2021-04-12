@@ -3,12 +3,10 @@ from requests import get
 import threading
 import re
 
-# url_regex = r'(?:(?:https?|ftp):\/\/)[\w/\-?=%.]+\.[\w/\-&?=%.]+'
-# url_regex = r'(?:(?:https?|ftp):\/\/)[\w/\-%.]+\.[\w/\-&%.]+'
 url_regex = r'(?:(?:https?|ftp|irc):\/\/)\w+.onion\/?[\w/\-%.]*\/?'
 subdir_regex = r'<a href="(\/\S*?html)">'
 
-clrline = lambda : print('\r'+' '*20+'\r',end="",flush=True)
+clrline = lambda : print('\r'+' '*20+'\r', end="", flush=True)
 
 # List of active/sem-active forums from pastebin
 # to start from
@@ -22,7 +20,7 @@ q=[ "http://cavetord6bosm3sl.onion/",
     "http://thundersplv36ecb.onion/",
     "http://76qugh5bey5gum7l.onion/",
     "http://koi6xzo34wxxvs6m.onion/",
-    "http://torpress2sarn7xw.onion/"]
+    "http://torpress2sarn7xw.onion/" ]
 visited = []
 
 def main():
@@ -41,16 +39,14 @@ def main():
                             'https':'socks5h://localhost:9050'},
                     timeout=8).text
         except Exception as err:
-            clrline()
-            print(f'Queue Count: {len(q)}',end="",flush=True)
-
             continue
 
 
-        children = {'new':set(),'subdirs':set()}
+        children = {'new': set(), 'subdirs': set()}
         new_urls = set(re.findall(url_regex, tosearch))
         delim = curr.index('onion')+6
-        subdirs = set(map(lambda x: curr[:delim]+x, re.findall(subdir_regex, tosearch)))
+        subdirs = set(map(lambda x: curr[:delim]+x, 
+                re.findall(subdir_regex, tosearch)))
 
         children[0] = new_urls
         children[1] = subdirs
