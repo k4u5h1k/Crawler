@@ -41,7 +41,6 @@ def main():
         except Exception as err:
             continue
 
-
         children = {'new': set(), 'subdirs': set()}
         new_urls = set(re.findall(url_regex, tosearch))
         delim = curr.index('onion')+6
