@@ -46,11 +46,11 @@ def main():
     clrline = lambda : print('\r' + ' '*cols() + '\r', end="", flush=True)
     q_len = lambda: len(pos_q) + len(neg_q)
     print_status = lambda: print((f'{green}Depth: {depth_counter}  Queued: {q_len()}  '
-        f'Searched: {len(data)}  Current: {curr[:70]+"..." if len(curr)>70 else curr}{reset}'), end='', flush=True)
+        f'Searched: {len(data)}  Current: {curr[:70]+"..." if len(curr)>75 else curr}{reset}'), end='', flush=True)
 
     while True:
         while q_len() == 0 or locked:
-            sleep(0.5)
+            sleep(0.1)
 
         if len(pos_q) > 0:
             curr = pos_q.pop(0)
@@ -70,7 +70,7 @@ def main():
                         'http':'socks5h://localhost:9050',
                         'https':'socks5h://localhost:9050'
                     },
-                    timeout=9).text
+                    timeout=7).text
 
             if len(tosearch) > 30:
                 # Doing this because after ranking pages we can grab url easily
@@ -104,7 +104,7 @@ def main():
 
         positive_set = set(filter(lambda x: any(list(keyword in x.lower() for keyword in query)), unique))
         pos_q.extend(list(positive_set))
-        neg_q.extend(list(unique - positive_set))
+        neg_q.extend(list(unique - positive_set)[:10])
 
         clrline()
 
@@ -112,7 +112,7 @@ def main():
             if len(neg_q) > 0:
                 print('\n'.join(neg_q[:50]))
             if len(pos_q) > 0:
-                print('\n'.join(pos_q[:50]))
+                print('\n'.join(pos_q))
                 
             children[curr] = [list(pos_q), list(neg_q)]
 
@@ -121,18 +121,14 @@ def main():
 
         print_status()
 
-        if not locked and len(data) > 60:
+        if not locked and len(data) > 45:
             locked = True
 
             date_copy = data.copy()
             sorted_pages = rank_data(' '.join(query), date_copy)
             data = {}
 
-            try:
-                sorted_urls = list(map(lambda x: x[:x.index(' || ')], sorted_pages))
-            except Exception as err:
-                print('|| ERROR ', err)
-                print(list(map(lambda x: x[:80], sorted_pages)))
+            sorted_urls = list(map(lambda x: x[:x.index(' || ')], sorted_pages))
 
             separator = '\n' + ' ' * 24
             toprint = separator.join(sorted_urls[:2])
@@ -141,7 +137,7 @@ def main():
             depth_counter += 1
 
             with open('results.txt', 'a') as f:
-                f.write(f'{depth_counter}. '.join(sorted_urls[:2])+'\n\n')
+                f.write(f'{depth_counter}. {sorted_urls[0]} \n{depth_counter}. {sorted_urls[1]} \n\n')
 
             for url in sorted_urls:
                 # If url has children shift all children to beginning of q
@@ -169,6 +165,7 @@ if __name__ == '__main__':
 
     banned_types = "|".join([
             'png',
+            'svg',
             'gif',
             'jpg',
             'mp4',
