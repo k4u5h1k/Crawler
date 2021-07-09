@@ -160,11 +160,11 @@ def main():
                 continue
 
             separator = '\n' + ' ' * 24
-            toprint = separator.join(sorted_urls[:2])
+            toprint = separator.join(sorted_urls[:5])
 
             clrline()
             depth_counter += 1
-            print(f'{green}\nBest result at depth {depth_counter}: {toprint}{reset}\n')
+            print(f'{yellow}\nBest result at depth {depth_counter}: {toprint}{reset}\n')
 
             with open('results.txt', 'a') as f:
                 a = sorted_pages[0].index(' || ')
@@ -235,6 +235,7 @@ if __name__ == '__main__':
 
     green = '\x1b[32m'
     red = '\x1b[31m'
+    yellow = '\x1b[33m'
     reset = '\x1b[0m'
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
