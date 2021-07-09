@@ -30,47 +30,60 @@ def rank_data(query, data):
     pages = list(data.values())
     df = pd.DataFrame(pages, columns=['pages'])
     df['pages'] = df['pages'].apply(lambda x:[x])
-    return list(map(lambda x: x.tolist()[0][0], search(query, df)))
+    scores, pages = search(query, df)
+    return scores, list(map(lambda x: x.tolist()[0][0], pages))
 
 def main():
     """ Actual searcher """
-    global visited, \
-        data, \
-        children, \
-        locked, \
+    global visited,    \
+        prevscores,    \
+        data,          \
+        children,      \
+        locked,        \
         depth_counter, \
-        pos_q, \
+        should_exit,   \
+        pos_q,         \
         neg_q
 
     cols = lambda: shutil.get_terminal_size().columns
     clrline = lambda : print('\r' + ' '*cols() + '\r', end="", flush=True)
     q_len = lambda: len(pos_q) + len(neg_q)
-    print_status = lambda: print((f'{green}Depth: {depth_counter}  Queued: {q_len()}  '
+    print_status = lambda: print((f'\r{" "*cols()}\r{green}Depth: {depth_counter}  Queued: {q_len()}  '
         f'Searched: {len(data)}  Current: {curr[:70]+"..." if len(curr)>75 else curr}{reset}'), end='', flush=True)
 
     while True:
+
+        if should_exit:
+            exit(0)
+
         while q_len() == 0 or locked:
             sleep(0.1)
 
         if len(pos_q) > 0:
             curr = pos_q.pop(0)
+            timeout = 10
         else:
             curr = neg_q.pop(0)
+            timeout = 8
+
+        print_status()
 
         delim = curr.index('onion') + 5
 
-        if curr not in visited:
+        # if subdirs of site have been visited more than 20 times then dont visit site
+        # again
+        if len(list(filter(lambda x: x.startswith(curr[:delim]), visited))) < 20:
             visited.append(curr)
         else:
             continue
 
         try:
             tosearch = get(curr, 
-                    proxies={
-                        'http':'socks5h://localhost:9050',
-                        'https':'socks5h://localhost:9050'
-                    },
-                    timeout=7).text
+                proxies={
+                    'http':'socks5h://localhost:9050',
+                    'https':'socks5h://localhost:9050'
+                },
+                timeout=timeout).text
 
             if len(tosearch) > 30:
                 # Doing this because after ranking pages we can grab url easily
@@ -78,13 +91,8 @@ def main():
             else:
                 continue
 
-            clrline()
-            print_status()
-
         except Exception as err:
-            clrline()
-            print(f'{red}{curr} took too long to respond{reset}')
-            print_status()
+            print(f'\r{" "*cols()}\r{red}{curr} took too long to respond{reset}')
 
             # If a url is unresponsive remove all its subdirectories from queues
             pos_q = list(filter(lambda x: not x.startswith(curr[:delim]), pos_q))
@@ -92,75 +100,101 @@ def main():
 
             continue
 
-        complete_urls = set(map(lambda x: x[0], 
-            re.findall(url_regex, tosearch)))
+        complete_urls = set(re.findall(url_regex, tosearch))
         unique_complete = complete_urls - set(visited) - (set(pos_q).union(set(neg_q)))
 
-        subdirs = set(map(lambda x: curr[:delim] + x, 
-            re.findall(subdir_regex, tosearch)))
-        unique_subdirs = subdirs - set(visited) - (set(pos_q).union(set(neg_q)))
+        score, _ = rank_data(' '.join(query), {'1': tosearch})
+        # print(f"score for {curr}:", score)
 
-        unique = unique_complete.union(unique_subdirs)
+        if score[0] > 0.07:
+            subdirs = set(map(lambda x: curr[:delim] + x if x.startswith('/') else curr[:delim] + '/' + x, 
+                re.findall(subdir_regex, tosearch)))
+            unique_subdirs = subdirs - set(visited) - (set(pos_q).union(set(neg_q)))
+
+            unique = unique_complete.union(unique_subdirs)
+        else:
+            unique = unique_complete
 
         positive_set = set(filter(lambda x: any(list(keyword in x.lower() for keyword in query)), unique))
-        pos_q.extend(list(positive_set))
-        neg_q.extend(list(unique - positive_set)[:10])
+        negative_set = unique - positive_set
 
-        clrline()
+        pos_q.extend(list(positive_set))
+        neg_q.extend(list(negative_set)[:10])
+
 
         if len(unique) > 0:
-            if len(neg_q) > 0:
-                print('\n'.join(neg_q[:50]))
-            if len(pos_q) > 0:
-                print('\n'.join(pos_q))
+            if len(negative_set) > 0:
+                clrline()
+                print('\n'.join(list(negative_set)[:10]))
+            if len(positive_set) > 0:
+                print('\n'.join(positive_set))
                 
-            children[curr] = [list(pos_q), list(neg_q)]
+            children[curr] = [list(positive_set), list(negative_set)]
 
         else:
-            print(f'{red}No links found in {curr}{reset}')
+            print(f'\r{" "*cols()}\r{red}No links found in {curr}{reset}')
 
-        print_status()
-
-        if not locked and len(data) > 45:
+        if not locked and len(data) > 60:
             locked = True
 
             date_copy = data.copy()
-            sorted_pages = rank_data(' '.join(query), date_copy)
+            scores, sorted_pages = rank_data(' '.join(query), date_copy)
+
+            if depth_counter == 1:
+                prevscores = scores
+            else:
+                if scores[0] < prevscores[0]:
+                    clrline()
+                    print(f'{red}Better results in previous depth, exiting{reset}')
+                    should_exit = True
+                    exit(0)
+
             data = {}
 
-            sorted_urls = list(map(lambda x: x[:x.index(' || ')], sorted_pages))
+            try:
+                sorted_urls = list(map(lambda x: x[:x.index(' || ')], sorted_pages))
+            except Exception:
+                print(f'\r{" "*cols()}\r{red}|| ERROR{reset}')
+                print(sorted_urls)
+                locked = False
+                continue
 
             separator = '\n' + ' ' * 24
             toprint = separator.join(sorted_urls[:2])
+
             clrline()
-            print(f'{green}Best result at depth {depth_counter}: {toprint}{reset}\n')
             depth_counter += 1
+            print(f'{green}\nBest result at depth {depth_counter}: {toprint}{reset}\n')
 
             with open('results.txt', 'a') as f:
-                f.write(f'{depth_counter}. {sorted_urls[0]} \n{depth_counter}. {sorted_urls[1]} \n\n')
+                a = sorted_pages[0].index(' || ')
+                b = sorted_pages[1].index(' || ')
+                f.write((f'{depth_counter}. {sorted_urls[0]} - {sorted_pages[0][a+6:a+56]}\n'
+                        f'{depth_counter}. {sorted_urls[1]} - {sorted_pages[1][b+6:b+56]}\n\n'))
 
-            for url in sorted_urls:
+            for url in reversed(sorted_urls[:3]):
                 # If url has children shift all children to beginning of q
                 if url in children:
                     pos_q = children[url][0] + pos_q
-                    neg_q = children[url][1] + neg_q
+                    neg_q = children[url][1][:20] + neg_q
                 else:
                     print(f'{url} has no children')
 
             locked = False
 
-
 if __name__ == '__main__':
-
     query = list(map(lambda x: x.lower(), [
             'flipkart',
-            'leak',
+            'data leak',
             'leaked',
             'cybercrime',
-            'breach',
             'hacking',
-            'blackhat',
         ]))
+
+    # query = list(map(lambda x: x.lower(), [
+    #         "dominos",
+    #         'leak',
+    #     ]))
 
 
     banned_types = "|".join([
@@ -173,30 +207,26 @@ if __name__ == '__main__':
             'css',
             'xml',
             'rss',
-            'jpeg'
+            'webp',
+            'jpeg',
+            'woff',
+            'eot',
+            'ttf',
+            'zip',
+            'xmlrpc.php'
         ])
 
-    url_regex = rf'((?:https?:\/\/)\w+.onion\/?(?!\S+?({banned_types}))[\w\/\-%.]*\/?)'
-    subdir_regex = r'<a href="(\/\S*(?:html|php))">'
+    url_regex = rf'((?:https?:\/\/)\w+.onion\/?(?!\S+?(?:{banned_types}))[\w\/\-%\.\?]*\/?)'
+    subdir_regex = r'<a href="(\/?\S+(?:html|php)\?.*?)"'
 
-    pos_q = []
-    neg_q = [
-            "http://puvurb7xtke4mhy56fuoexp522ou67gd37sodgc6agaas6vg2wb54vad.onion/index.php?title=Main_Page",
-            "http://l2rovcfp45ucvnb4futewkhmxqb6kktruoagx57a4zgmvjewjl2ftpyd.onion/",
-            # "http://cavetord6bosm3sl.onion/",
-            # "http://s6cco2jylmxqcdeh.onion/",
-            # "http://z2hjm7uhwisw5jm5.onion/",
-            # "http://zw3crggtadila2sg.onion/",
-            # "http://76qugh5bey5gum7l.onion/",
-            # "http://koi6xzo34wxxvs6m.onion/",
-            # "http://torpress2sarn7xw.onion/"
-        ]
     visited = []
     children = {}
     data = {}
+    prevscores = [0]
 
     depth_counter = 0
     locked = False
+    should_exit = False
 
     # Must do this if you want colours to work on windows
     iswin = sys.platform.startswith('win')
@@ -212,14 +242,19 @@ if __name__ == '__main__':
     host = socket.getaddrinfo('127.0.0.1', 9050)
     status = sock.connect_ex(host[-1][4])
     if status != 0:
-        print('{red}Tor proxy not found on port 9050, aborting{reset}')
+        print(f'{red}Tor proxy not found on port 9050, aborting{reset}')
+        should_exit = True
         exit(0)
 
     # Clear results file
     open('results.txt', 'w').close()
 
+    url = f"https://ahmia.fi/search/?q={'+'.join(query)}"
+    engine_page = get(url).text
+    neg_q = re.findall(r'redirect_url=(.*?)">', engine_page)
+    pos_q = []
+
     threads=[]
-    for _ in range(150):
+    for _ in range(6):
         threads.append(threading.Thread(target=main))
         threads[-1].start()
-        threads[-1].join()
