@@ -6,6 +6,7 @@ __pycache__/
 results.txt
 Testing.ipynb
 blacklist_generator.py
+good_results.txt
 
 # C extensions
 *.so
