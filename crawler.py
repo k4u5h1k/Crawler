@@ -9,6 +9,7 @@ import pandas as pd
 from requests import get
 from time import sleep, time
 from base64 import b64decode
+from hashlib import md5
 from retriever.searcher import search
 
 def remove_html_tags(text):
@@ -66,11 +67,19 @@ def assign_ranks(final=False):
         separator = '\n' + ' ' * 24
         toprint = separator.join(sorted_urls[:5])
         print(f'{yellow}\nBest result at depth {depth}: {toprint}{reset}\n')
+        # for url in sorted_urls[:5]:
+        #     print(f'{yellow}{url} {page_hashes[url]}{reset}')
         depth += 1
 
         with open('results.txt', 'a') as f:
             for i in range(3):
-                a = sorted_pages[i].index(' || ')
+                try:
+                    a = sorted_pages[i].index(' || ')
+                except Exception:
+                    print(f'\r{" "*cols()}\r{red}|| ERROR {sorted_pages[i][:60]}{reset}')
+                    locked = False
+                    return 1
+
                 f.write(f'{sorted_urls[i]} - {sorted_pages[i][a+4:a+56]}\n')
             f.write('\n')
 
@@ -89,6 +98,7 @@ def main():
         should_exit,   \
         pos_q,         \
         neg_q,         \
+        page_hashes,   \
         blacklist
 
     q_len = lambda: len(pos_q) + len(neg_q)
@@ -122,8 +132,8 @@ def main():
 
         # if subdirs of site have been visited more than 20 times then dont visit site
         # again
-        if len(list(filter(lambda x: x.startswith(curr[:delim]), visited))) < 50:
-            visited.append(curr[:delim])
+        if curr not in visited:
+            visited.append(curr)
         else:
             continue
 
@@ -144,13 +154,21 @@ def main():
 
             continue
 
+
         if len(tosearch) < 30 or any(list(map(lambda x: x in tosearch, blacklist))):
+            # print(f'\r{" "*cols()}\r{red}{curr} too small or contains blacklisted token(s){reset}')
+            continue
+
+        page_hash = md5(tosearch.encode('utf-8')).hexdigest()
+        if page_hash not in list(page_hashes.values()):
+            page_hashes[curr] = page_hash
+        else:
             continue
 
         score, _ = calculate_rank(' '.join(query), {'1': tosearch})
         # print(curr, score)
 
-        if score[0] > (0.02+0.01*(depth)):
+        if score[0] > (0.01+0.01*(depth)):
             # Doing this because after ranking pages we can grab url easily
             data[curr] = curr + ' || ' + remove_html_tags(tosearch)
             complete_urls = set(re.findall(url_regex, tosearch))
@@ -195,7 +213,7 @@ if __name__ == '__main__':
     clrline = lambda : print('\r' + ' '*cols() + '\r', end="", flush=True)
 
     query = list(map(lambda x: x.lower(), [
-            'flipkart',
+            'cats'
         ]))
 
     banned_types = "|".join([
@@ -220,6 +238,7 @@ if __name__ == '__main__':
     subdir_regex = r'<a href="(\/?\S+(?:html|php)\?.*?)"'
 
     visited = []
+    page_hashes = {}
     children = {}
     data = {}
     prevscores = [0]
