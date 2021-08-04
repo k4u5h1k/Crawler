@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-import os
 import pandas as pd
-import numpy as np
+from retriever_sklearn import TfidfRetriever
+from ast import literal_eval
 
-def filter_paragraphs(
+def filter_pages(
     articles,
     drop_empty=True,
     read_threshold=1000,
@@ -42,6 +42,7 @@ def filter_paragraphs(
         return page_filtered
 
     # Cleaning and filtering
+    articles["pages"] = articles["pages"].apply(lambda x: literal_eval(str(x)))
     articles["pages"] = articles["pages"].apply(replace_and_split)
     articles["pages"] = articles["pages"].apply(filter_on_size)
     articles["pages"] = articles["pages"].apply(
@@ -58,3 +59,13 @@ def filter_paragraphs(
 
     return articles
 
+def search(query, df):
+    df = filter_pages(df)
+    retriever = TfidfRetriever(ngram_range=(1, 2), min_df=0, max_df=0.85, stop_words='english', verbose=True)
+    retriever.fit(df)
+    best_index = list(retriever.predict(query).keys())[0]
+    return df.iloc[best_index]
+
+if __name__ == '__main__':
+    df = pd.read_csv('./bnpp_newsroom-v1.1.csv')
+    print(search('Since when does the the Excellence Program of BNP Paribas exist?', df))

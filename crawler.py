@@ -76,7 +76,7 @@ def assign_ranks(final=False):
                 try:
                     a = sorted_pages[i].index(' || ')
                 except Exception:
-                    print(f'\r{" "*cols()}\r{red}|| ERROR {sorted_pages[i][:60]}{reset}')
+                    print(f'\r{" "*cols()}\r{red}|| ERROR {sorted_pages[i][:10]}{reset}')
                     locked = False
                     return 1
 

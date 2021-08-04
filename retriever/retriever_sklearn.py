@@ -1,87 +1,11 @@
-import pandas as pd
-import prettytable
 import time
-from abc import ABC, abstractmethod
+import prettytable
+import pandas as pd
+from ast import literal_eval
 from collections import OrderedDict
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.base import BaseEstimator
 
-
-class BaseRetriever(BaseEstimator, ABC):
-    """
-    Abstract base class for all Retriever classes.
-    All retrievers should inherit from this class.
-    Each retriever class should implement a _fit_vectorizer method and a
-    _compute_scores method
-    """
-
-    def __init__(self, vectorizer, top_n=10, verbose=False):
-        self.vectorizer = vectorizer
-        self.top_n = top_n
-        self.verbose = verbose
-
-    def fit(self, df: pd.DataFrame, y=None):
-        """
-        Fit the retriever to a list of documents or paragraphs
-
-        Parameters
-        ----------
-        df: pandas.DataFrame object with all documents
-        """
-
-        self.metadata = df
-        return self._fit_vectorizer(df)
-
-    @abstractmethod
-    def _fit_vectorizer(self, df):
-        pass
-
-    @abstractmethod
-    def _compute_scores(self, query):
-        pass
-
-    def predict(self, query: str) -> OrderedDict:
-        """
-        Compute the top_n closest documents given a query
-
-        Parameters
-        ----------
-        query: str
-
-        Returns
-        -------
-        best_idx_scores: OrderedDict
-            Dictionnaire with top_n best scores and idices of the documents as keys
-
-        """
-        t0 = time.time()
-        scores = self._compute_scores(query)
-        idx_scores = [(idx, score) for idx, score in enumerate(scores)]
-        best_idx_scores = OrderedDict(
-            sorted(idx_scores, key=(lambda tup: tup[1]), reverse=True)[: self.top_n]
-        )
-        closest_docs_indices = list(best_idx_scores.keys())
-
-        # inspired from https://github.com/facebookresearch/DrQA/blob/50d0e49bb77fe0c6e881efb4b6fe2e61d3f92509/scripts/reader/interactive.py#L63
-        if self.verbose:
-            rank = 1
-            table = prettytable.PrettyTable(["rank", "index", "title"])
-            for i in range(len(closest_docs_indices)):
-                index = closest_docs_indices[i]
-                # if self.paragraphs:
-                #     article_index = self.paragraphs[int(index)]["index"]
-                #     title = self.metadata.iloc[int(article_index)]["title"]
-                # else:
-                title = self.metadata.iloc[int(index)]["title"]
-                table.add_row([rank, index, title])
-                rank += 1
-            print(table)
-            print("Time: {} seconds".format(round(time.time() - t0, 5)))
-
-        return best_idx_scores
-
-
-class TfidfRetriever(BaseRetriever):
+class TfidfRetriever:
     """
     A scikit-learn estimator for TfidfRetriever. Trains a tf-idf matrix from a corpus
     of documents then finds the most N similar documents of a given input document by
@@ -145,8 +69,6 @@ class TfidfRetriever(BaseRetriever):
 
     Examples
     --------
-    >>> from cdqa.retriever import TfidfRetriever
-
     >>> retriever = TfidfRetriever(ngram_range=(1, 2), max_df=0.85, stop_words='english')
     >>> retriever.fit(X=df)
     >>> best_idx_scores = retriever.predict(X='Since when does the the Excellence Program of BNP Paribas exist?')
@@ -175,6 +97,8 @@ class TfidfRetriever(BaseRetriever):
         self.max_df = max_df
         self.min_df = min_df
         self.vocabulary = vocabulary
+        self.top_n = top_n
+        self.verbose = verbose
 
         vectorizer = TfidfVectorizer(
             lowercase=self.lowercase,
@@ -187,13 +111,108 @@ class TfidfRetriever(BaseRetriever):
             min_df=self.min_df,
             vocabulary=self.vocabulary,
         )
-        super().__init__(vectorizer, top_n, verbose)
+        self.vectorizer = vectorizer
 
-    def _fit_vectorizer(self, df, y=None):
+    def fit(self, df: pd.DataFrame, y=None):
+        self.metadata = df
         self.tfidf_matrix = self.vectorizer.fit_transform(list(map(' '.join, df["pages"])))
         return self
+
+    def predict(self, query: str) -> OrderedDict:
+        """
+        Compute the top_n closest documents given a query
+
+        Parameters
+        ----------
+        query: str
+
+        Returns
+        -------
+        best_idx_scores: OrderedDict
+            Dictionnaire with top_n best scores and idices of the documents as keys
+
+        """
+        t0 = time.time()
+        scores = self._compute_scores(query)
+        idx_scores = [(idx, score) for idx, score in enumerate(scores)]
+        best_idx_scores = OrderedDict(
+            sorted(idx_scores, key=(lambda tup: tup[1]), reverse=True)[: self.top_n]
+        )
+        closest_docs_indices = list(best_idx_scores.keys())
+
+        if self.verbose:
+            rank = 1
+            table = prettytable.PrettyTable(["rank", "index", "title"])
+            for i in range(len(closest_docs_indices)):
+                index = closest_docs_indices[i]
+                # if self.paragraphs:
+                #     article_index = self.paragraphs[int(index)]["index"]
+                #     title = self.metadata.iloc[int(article_index)]["title"]
+                # else:
+                title = self.metadata.iloc[int(index)]["title"]
+                table.add_row([rank, index, title])
+                rank += 1
+            print(table)
+            print("Time: {} seconds".format(round(time.time() - t0, 5)))
+
+        return best_idx_scores
 
     def _compute_scores(self, query):
         question_vector = self.vectorizer.transform([query])
         scores = self.tfidf_matrix.dot(question_vector.T).toarray()
         return scores
+
+    def filter_pages(
+        self,
+        articles,
+        drop_empty=True,
+        read_threshold=1000,
+        public_data=True,
+        min_length=0,
+        max_length=5000,
+    ):
+        """
+        Cleans the pages and filters them regarding their length
+        Parameters
+        ----------
+        articles : DataFrame of all the articles 
+        Returns
+        -------
+        Cleaned and filtered dataframe
+        Examples
+        --------
+        >>> df = pd.read_csv('data.csv')
+        >>> df_cleaned = filter_pages(df)
+        """
+
+        # Replace and split
+        def replace_and_split(pages):
+            for page in pages:
+                page.replace("'s", " " "s").replace("\\n", "").split("'")
+            return pages
+
+        # Select pages with the required size
+        def filter_on_size(pages, min_length=min_length, max_length=max_length):
+            page_filtered = [
+                page.strip()[:max_length]
+                for page in pages
+            ]
+            return page_filtered
+
+        # Cleaning and filtering
+        articles["pages"] = articles["pages"].apply(lambda x: literal_eval(str(x)))
+        articles["pages"] = articles["pages"].apply(replace_and_split)
+        articles["pages"] = articles["pages"].apply(filter_on_size)
+        articles["pages"] = articles["pages"].apply(
+            lambda x: x if len(x) > 0 else np.nan
+        )
+
+        # Read threshold for private dataset
+        if not public_data:
+            articles = articles.loc[articles["number_of_read"] >= read_threshold]
+
+        # Drop empty articles
+        if drop_empty:
+            articles = articles.dropna(subset=["pages"]).reset_index(drop=True)
+
+        return articles
